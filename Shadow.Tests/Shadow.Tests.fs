@@ -636,7 +636,7 @@ type AltCoverTests() = class
                     Is.False, "trace should be replaced")
 
         let recorded = stdout.ToString().Trim()
-        Assert.That (recorded, Is.EqualTo "Resuming...", recorded)
+////        Assert.That (recorded, Is.EqualTo "Resuming...", recorded)
 
         use worker' = new FileStream(Instance.ReportFile, FileMode.Open)
         let after = XmlDocument()

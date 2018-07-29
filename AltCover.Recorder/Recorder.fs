@@ -323,13 +323,19 @@ module Instance =
                      (PayloadSelector IsOpenCoverRunner) moduleId hitPointId
 
   let internal FlushCounter (finish:Close) _ =
+   sprintf "Flushing counter for %A"  finish
+   |> System.Diagnostics.Trace.Write
    if mailboxOK then
        Recording <- finish = Resume
        lock (buffer) (fun () ->
        if not Recording then UnbufferedVisit (fun _ -> true)
-       buffer.Clear()
        buffer.Clear())
-       mailbox.TryPostAndReply ((fun c -> Finish (finish, c)), 2000) |> ignore
+       sprintf "Posting flush at %A"  DateTime.UtcNow
+       |> System.Diagnostics.Trace.Write
+       let r = mailbox.TryPostAndReply ((fun c -> Finish (finish, c)), 2000)
+       sprintf "Posted flush at %A yielded %A"  DateTime.UtcNow r
+       |> System.Diagnostics.Trace.Write
+
 
   let internal AddErrorHandler (box:MailboxProcessor<'a>) =
     box.Error.Add MailboxError

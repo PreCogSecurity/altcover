@@ -132,7 +132,21 @@ module CommandLine =
     proc.Start() |> ignore
     proc.BeginErrorReadLine()
     proc.BeginOutputReadLine()
+    printfn "Waiting for 'runner'ed process to exit"
+    let mutable tripped = false
+    async {
+              let rec loop (exited:bool) =
+                Threading.Thread.Sleep(5000)
+                let andNow = proc.HasExited
+                if (exited && andNow) then 
+                  System.Environment.Exit(127)
+                if tripped |> not then
+                  loop andNow
+              loop false
+          } |> Async.Start
     proc.WaitForExit()
+    printfn "The 'runner'ed process has exited"
+    tripped <- true
     proc.ExitCode
 
   let logException store (e : Exception) =

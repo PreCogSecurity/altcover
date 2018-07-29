@@ -18,6 +18,7 @@ type Tracer = {
 #endif
 
     static member Create (name:string) =
+      printfn "Create tracer %s" name
       {
        Tracer = name
        Runner = false
@@ -38,11 +39,13 @@ type Tracer = {
         |> Seq.filter (File.Exists >> not)
         |> Seq.map (fun f -> let fs = File.OpenWrite f
                              let s = new BufferedStream(new DeflateStream(fs, CompressionMode.Compress))
+                             printfn "Connected %s" f
                              { this with Stream = s
                                          Formatter = new BinaryWriter(s)
                                          Runner = true })
         |> Seq.head
       else
+        printfn "No tracer file; no connection"
         this
 
     member this.Close() =
@@ -62,6 +65,7 @@ type Tracer = {
                         this.Formatter.Write(t)
 
     member internal this.CatchUp (visits:Dictionary<string, Dictionary<int, int * Track list>>) =
+      printfn "Catching up..."
       let empty = Null
       visits.Keys
       |> Seq.iter (fun moduleId ->
@@ -73,10 +77,12 @@ type Tracer = {
                                        |> Seq.concat |> Seq.iter push
                                        ))
       visits.Clear()
+      printfn "Caught up"
 
     member this.OnStart () =
       let running = if this.Tracer <> "Coverage.Default.xml.acv" then
                        this.Connect () else this
+      printfn "Definitve is %A" running
       {running with Definitive = true}
 
     member this.OnConnected f g =
@@ -84,10 +90,12 @@ type Tracer = {
       else g ()
 
     member internal this.OnFinish visits =
+      printfn "OnFinish at %A" System.DateTime.UtcNow
       this.CatchUp visits
       this.Push System.String.Empty -1 Null
       this.Stream.Flush()
       this.Close()
+      printfn "OnFinish done at %A" System.DateTime.UtcNow
 
     member internal this.OnVisit visits moduleId hitPointId context =
       this.CatchUp visits

@@ -16,6 +16,13 @@ nuget:
   disable_publish_on_pr: true
 install:
   - cinst gtksharp
+before_build:
+  # Dependency-free policy/security gate: package-source allow-list, no new key
+  # material or credential literals, container build context excludes .git and
+  # Build/*.snk, global.json has a roll-forward band, compose/.env.example agree.
+  # Runs before the toolchain is touched so a policy failure is cheap. See
+  # SECURITY.md.
+  - ps: python Build\verify-repo.py
 build_script:
 - ps: >-
     $ErrorActionPreference = 'Continue'

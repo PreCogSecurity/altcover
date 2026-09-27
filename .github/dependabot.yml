@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # PackageReference versions across the .csproj/.fsproj files. This is the
+  # cheapest supply-chain control we have: it keeps the instrumenter's
+  # dependencies (Mono.Cecil, Newtonsoft.Json, xunit, ...) on reviewed versions
+  # and surfaces transitive advisories as pull requests instead of surprises in
+  # a customer build.
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "nuget"
+
+  # Keep the CI actions themselves current -- a pinned action tag is a
+  # third-party dependency with the same blast radius as a NuGet package.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci"
+
+  # Base image updates for the development container.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "docker"

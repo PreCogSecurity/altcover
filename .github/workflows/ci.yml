@@ -1,0 +1,115 @@
+name: CI
+
+# Three tiers, in increasing order of cost and fragility:
+#
+#   policy        - dependency-free static gates. Runs on every push and is the
+#                   gate a contributor can satisfy without a .NET toolchain.
+#   container     - lints the Dockerfile and validates the compose file.
+#   secret-scan   - working-tree credential scan.
+#   legacy-build  - the historical FAKE build. Manual only: it needs VS2017 F#,
+#                   Mono 5.12, GTK# and the EOL .NET Core 2.1 SDK, so it is not
+#                   something a hosted runner can be relied on to reproduce.
+#                   See "Building" in README.md.
+#
+# The split is intentional. A pipeline that is red for environmental reasons
+# trains people to ignore it, which is worse than no pipeline.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: nothing in this workflow needs to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  policy:
+    name: Repository policy and security gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify repository policy
+        run: python Build/verify-repo.py
+
+      - name: Prove the policy gate can fail
+        # A gate that cannot fail is worse than no gate: it stays green forever
+        # and people stop reading it. This feeds known-bad fixtures to the real
+        # checks in a throwaway directory and asserts each one complains.
+        run: python Build/verify-repo.py --self-test
+
+  container:
+    name: Container lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Validate compose file
+        # Static validation only -- this repository has no service to start.
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          rm -f .env
+
+  secret-scan:
+    name: Secret scan (working tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for committed credentials
+        # Pinned by tag, working tree only, reviewed allow-list in
+        # .gitleaks.toml. See the header of that file for why the git history is
+        # not scanned here.
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --no-git --source=/repo --redact --no-banner --verbose
+
+  legacy-build:
+    name: Legacy FAKE build (best effort)
+    if: github.event_name == 'workflow_dispatch'
+    # Best effort by design: see the header comment. Flip this to a hard failure
+    # once the toolchain has been modernised.
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Repository policy gate
+        run: python3 Build/verify-repo.py --quiet
+
+      - name: Bootstrap (dotnet fake)
+        run: |
+          dotnet restore ./dotnet-fake.fsproj
+          dotnet fake run ./Build/setup.fsx
+
+      - name: Build, unit test and package
+        # Runs Compilation -> Analysis -> UnitTest -> OperationalTest ->
+        # Packaging. The unit-test coverage gate is the `UnitTest` target, which
+        # fails the build if any layer reports <= 99% line coverage.
+        run: dotnet fake run ./Build/build.fsx

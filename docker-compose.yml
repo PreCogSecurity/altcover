@@ -1,8 +1,32 @@
+# Development environment for AltCover -- see .env.example for the variables.
+#
+# This is an interactive build/test shell, not a service: it binds no port,
+# drops every Linux capability and refuses setuid escalation. The previously
+# published `8080:8080` mapping was removed because nothing in the image listens
+# on 8080; it only widened the attack surface of every contributor's machine.
 services:
   app:
-    build: .
-    ports:
-      - "8080:8080"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ALTCOVER_UID: "${ALTCOVER_UID:-1000}"
+        ALTCOVER_GID: "${ALTCOVER_GID:-1000}"
+    image: altcover-dev:local
+    init: true
+    working_dir: /app
     volumes:
       - .:/app
-    working_dir: /app
+    environment:
+      HOME: /home/altcover
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_PACKAGES: /app/.nuget/packages
+    # Drop to the unprivileged uid/gid so the bind mount is writable on Linux.
+    user: "${ALTCOVER_UID:-1000}:${ALTCOVER_GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stdin_open: true
+    tty: true

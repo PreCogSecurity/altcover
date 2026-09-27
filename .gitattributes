@@ -13,5 +13,30 @@
 *.DOT  diff=astextplain
 *.pdf  diff=astextplain
 *.PDF	 diff=astextplain
-*.rtf	 diff=astextplain
-*.RTF	 diff=astextplain
+*.rtf  diff=astextplain
+*.RTF  diff=astextplain
+
+# Binary artifacts.
+#
+# Without an explicit `binary` attribute these files are subject to the
+# `* text=auto` heuristic above, which can (and historically has) mangled the
+# strong-name keys in Build/*.snk and the vendored Mono.Cecil assemblies. Git
+# only auto-detects content on add, so an already-corrupted blob stays
+# corrupted; declaring them binary makes the intent unambiguous for every
+# contributor and every tool that consumes the tree.
+*.snk    binary
+*.dll    binary
+*.exe    binary
+*.pdb    binary
+*.mdb    binary
+*.nupkg  binary
+*.snupkg binary
+*.zip    binary
+*.gz     binary
+*.png    binary
+*.ico    binary
+*.resx   diff=astextplain
+
+# Lock files and generated restore output are not worth diffing line-by-line.
+packages.lock.json linguist-generated=true
+*.lock   -diff

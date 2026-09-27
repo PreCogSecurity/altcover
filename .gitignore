@@ -47,8 +47,20 @@ Temporary Items
 .apdisk
 
 _*/
-.*/
+# Build output. `*/` above already covers the top level; the `**/` forms cover
+# the nested cases (Demo/Service/packages, Sample1/bin, ...).
 packages/
+**/packages/
+# Tooling/editor state. This used to be a blanket `.*/`, which silently ignored
+# every dot-directory -- including .github/, so no workflow, no dependabot
+# configuration, no issue template and no security advisory could ever be
+# committed. Keep the list explicit; add to it, do not wildcard it.
+.vs/
+.vscode/
+.idea/
+.licenser/
+# Never ignore these: they are part of the product.
+!.github/
 *.mdb
 **/bin/
 **/obj/

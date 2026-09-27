@@ -37,18 +37,48 @@ module Output =
     use stream = File.Open(path, FileMode.Append, FileAccess.Write)
     use writer = new StreamWriter(stream)
 
-    let rec logException padding ex =
-      ex.ToString() |> writer.WriteLine
+    // An exception is data as far as this diagnostic is concerned, and it can be
+    // arbitrary data: a custom exception may expose a property getter that
+    // throws, or a property that returns itself (or one of its ancestors).
+    // Walking such a graph with unguarded reflection turns a diagnostic into a
+    // second failure -- and a cycle is unrecoverable, because a stack overflow
+    // cannot be caught.  This runs from the error-reporting path, so a throw
+    // here would mask the error the user actually needs to see.  Hence: bound
+    // the nesting, never visit the same object twice, and never let a getter
+    // escape.
+    let maxDepth = 8
 
-      ex.GetType().GetProperties()
-      |> Seq.filter (fun p -> [ "Message"
-                                "StackTrace" ] |> Seq.exists (fun n -> n = p.Name) |> not)
-      |> Seq.iter (fun p -> (padding + p.Name + " = ") |> writer.WriteLine
-                            match p.GetValue(ex) with
-                            | :? Exception as exx ->
-                              logException ("  " + padding) exx
-                            | v -> v |> sprintf "%A" |> writer.WriteLine)
-    logException String.Empty e
+    let rec logException depth seen padding ex =
+      if depth > maxDepth then
+        (padding + "... (exception nesting truncated at depth " +
+         maxDepth.ToString(CultureInfo.CurrentCulture) + ")")
+        |> writer.WriteLine
+      else
+        ex.ToString() |> writer.WriteLine
+
+        let properties : PropertyInfo[] =
+          try
+            ex.GetType().GetProperties()
+          with
+          | x ->
+            (padding + "<properties unavailable: " + x.Message + ">") |> writer.WriteLine
+            [||]
+
+        properties
+        |> Seq.filter (fun p -> [ "Message"
+                                  "StackTrace" ] |> Seq.exists (fun n -> n = p.Name) |> not)
+        |> Seq.iter (fun p -> (padding + p.Name + " = ") |> writer.WriteLine
+                              try
+                                match p.GetValue(ex) with
+                                | :? Exception as exx ->
+                                  if seen |> List.exists (fun s -> Object.ReferenceEquals(s, exx)) then
+                                    (padding + "  (already logged)") |> writer.WriteLine
+                                  else
+                                    logException (depth + 1) (exx :: seen) ("  " + padding) exx
+                                | v -> v |> sprintf "%A" |> writer.WriteLine
+                              with
+                              | x -> (padding + "  <not available: " + x.Message + ">") |> writer.WriteLine)
+    logException 0 [] String.Empty e
 
 module CommandLine =
 

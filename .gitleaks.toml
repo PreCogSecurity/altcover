@@ -1,0 +1,36 @@
+# gitleaks configuration for the AltCover working tree.
+#
+# Scope: this file is used by the `secret-scan` job in .github/workflows/ci.yml,
+# which scans the *current checkout only* (`--no-git`). A full-history scan is
+# deliberately not run in CI: this repository has ~1,800 commits going back to
+# 2010 and a history scan is expected to find credentials that were committed and
+# later removed. That is a rotation exercise, not a build break, so it is
+# tracked in SECURITY.md instead of being used as a red/green gate.
+#
+# Every entry below is a reviewed exception with a reason. Adding an entry here
+# is a security decision and should be justified in the pull request.
+
+title = "AltCover working-tree secret policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed exceptions; see SECURITY.md for the remediation owners."
+
+# Build/*.snk are strong-name private keys. They are already in the public git
+# history, so scanning them adds no information, and they must not be rotated
+# away in a way that silently breaks the FAKE build. The required rotation is
+# tracked in SECURITY.md ("Strong-name keys") and enforced as "no *new* key
+# material" by Build/verify-repo.py.
+paths = [
+  '''Build/(Infrastructure|Recorder|SelfTest)\.snk''',
+]
+
+# appveyor.yml `secure:` values are AES-encrypted by AppVeyor and are only
+# decryptable by AppVeyor itself. They are not plaintext credentials. The real
+# finding for this repository is the .snk files above, not these.
+regexTarget = "match"
+regexes = [
+  '''secure:\s*[A-Za-z0-9+/=]{40,}''',
+]

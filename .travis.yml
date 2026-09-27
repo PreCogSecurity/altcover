@@ -22,7 +22,14 @@ cache:
   - $HOME/.nuget
 
 script:
+  # Fast, dependency-free policy gate first: package-source allow-list, no new
+  # key material or credential literals, container build context does not leak
+  # .git or the Build/*.snk keys, global.json rolls forward, compose and
+  # .env.example agree. See SECURITY.md.
+  - python3 ./Build/verify-repo.py
   - export PATH="$PATH:/home/travis/.dotnet/tools"
   - dotnet restore ./dotnet-fake.fsproj
   - dotnet fake run ./Build/setup.fsx
+  # Compiles, runs JustUnitTest / UnitTestDotNet / Pester, enforces the coverage
+  # gate in the UnitTest target, then packages.
   - dotnet fake run ./Build/build.fsx

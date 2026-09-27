@@ -40,13 +40,30 @@ Fast forwards to autumn 2017, and I get the chance to dust the project off, with
 
 ## Continuous Integration
 
-| | |
-| --- | --- |
+| | | |
+| --- | --- | --- |
 | **Build** | <sup>AppVeyor</sup> [![Build status](https://img.shields.io/appveyor/ci/SteveGilham/altcover/master.svg)](https://ci.appveyor.com/project/SteveGilham/altcover) [![Test status](https://img.shields.io/appveyor/tests/SteveGilham/altcover/master.svg)](https://ci.appveyor.com/project/SteveGilham/altcover) <sup>Travis</sup> [![Build status](https://travis-ci.org/SteveGilham/altcover.svg?branch=master)](https://travis-ci.org/SteveGilham/altcover#)|
 | **Unit Test coverage** | <sup>Coveralls</sup> [![Coverage Status](https://coveralls.io/repos/github/SteveGilham/altcover/badge.svg?branch=master)](https://coveralls.io/github/SteveGilham/altcover?branch=master) |
 | **Nuget** | [![Nuget](https://buildstats.info/nuget/AltCover)](http://nuget.org/packages/AltCover) [![Nuget](https://img.shields.io/nuget/vpre/AltCover.svg)](http://nuget.org/packages/AltCover) |
 | (.dotnet) | [![Nuget](https://buildstats.info/nuget/altcover.dotnet)](http://nuget.org/packages/altcover.dotnet) [![Nuget](https://img.shields.io/nuget/vpre/altcover.dotnet.svg)](http://nuget.org/packages/altcover.dotnet) |
 | (.global) | [![Nuget](https://buildstats.info/nuget/altcover.global)](http://nuget.org/packages/altcover.global) [![Nuget](https://img.shields.io/nuget/vpre/altcover.global.svg)](http://nuget.org/packages/altcover.global) |
+
+Coverage is uploaded to Coveralls by the FAKE `UnitTestWithAltCoverRunner`
+target, not by a separate CI step: it converts the report that AltCover has just
+produced with `coveralls.net.exe`. The upload is skipped when
+`COVERALLS_REPO_TOKEN` is unset, so a fork's pull request does not fail on a
+missing secret.
+
+## Security
+
+Please read [SECURITY.md](./SECURITY.md) before adopting AltCover in a pipeline.
+
+In short: report vulnerabilities privately via the repository's *Security* tab
+rather than a public issue, and note that this repository's historical
+strong-name private keys (`Build/*.snk`) are already in the public git history
+and must be treated as compromised. Restore from nuget.org only, and keep
+signing material out of any build that runs `Build/*.fsx`.
+
 
 ## Usage
 
@@ -90,6 +107,75 @@ Running `dotnet fake run ./Build/build.fsx` performs a full build/test/package p
 
 Use `dotnet fake run ./Build/build.fsx --target <targetname>` to run to a specific target.
 
+The targets that matter when you are changing the instrumenter, and that CI runs
+as part of the full build:
+
+| Target | What it does |
+| --- | --- |
+| `BuildRelease` / `BuildDebug` | compiles `AltCover.sln` and `altcover.core.sln` |
+| `Lint`, `Gendarme`, `FxCop` | static analysis. **`Lint` is currently a no-op** -- see [Code style](#code-style) |
+| `JustUnitTest` | NUnit + xUnit unit tests only (fast; this is the one to use while iterating) |
+| `UnitTestDotNet` | the `*.tests.core.fsproj` suites under `dotnet test` |
+| `UnitTest` | coverage gate: fails if any layer reports <= 99% line coverage |
+| `Pester` | the PowerShell module tests (`Build/Pester.Tests.ps1`) |
+| `SelfTest` | instruments AltCover with itself and checks the result |
+
+The fastest inner loop is:
+
+```bash
+dotnet fake run ./Build/build.fsx --target JustUnitTest
+```
+
+Note that some unit tests expect the separate build of the test assemblies under
+Mono, .net framework and .net core to have already happened, so run the full
+build at least once before trusting a green `JustUnitTest`.
+
+#### Verifying the repository (no toolchain required)
+
+`Build/verify-repo.py` is a dependency-free gate that runs on any machine with
+Python 3 -- no SDK, no restore, no network:
+
+```bash
+python Build/verify-repo.py          # verbose
+python Build/verify-repo.py --quiet  # summary only, for CI
+python Build/verify-repo.py --list   # enumerate the checks
+```
+
+It enforces the package-source allow-list, rejects newly added private key
+material and obvious credential literals, checks that every project XML file
+parses, that the container build context excludes `.git` and keys, that the
+image does not run as root, that `global.json` has a roll-forward band, and that
+`docker-compose.yml` and `.env.example` agree. It is the first job in
+`.github/workflows/ci.yml`, and the `.travis.yml` `script` runs it before the
+.NET toolchain is touched, so a policy failure costs seconds rather than a
+15-minute build.
+
+It also tests itself, which is the part that makes the rest of it trustworthy:
+
+```bash
+python Build/verify-repo.py --self-test
+```
+
+That runs each check against a known-bad fixture in a throwaway directory and
+fails if the check *does not* complain. A gate that cannot fail is worse than no
+gate. Writing it caught three real defects in the gate itself, two of which were
+latent path-handling bugs that only appeared when the script was run from
+outside the repository root.
+
+#### Code style
+
+`.editorconfig` is the formatting baseline (2-space indent for F#, 4 for C#,
+UTF-8, LF, final newline). It is honoured by Visual Studio, VS Code, Rider and
+`dotnet format`, so it applies whether or not you run the linter.
+
+`Settings.FSharpLint` holds the naming and rewrite rules and is a stricter
+supplement, but the `Lint` FAKE target is currently disabled: FSharpLint cannot
+parse the F# version this project compiles against (see the commented-out code
+in `Build/targets.fsx` and
+[FSharpLint#266](https://github.com/fsprojects/FSharpLint/issues/266)). Until
+that is resolved, `.editorconfig` plus review is what actually keeps the tree
+consistent.
+
 #### If the build fails
 
 If there's a passing build on the CI servers for this commit, then it's likely to be one of the [intermittent build failures](https://github.com/SteveGilham/altcover/wiki/Intermittent-build-issues) that can arise from the tooling used. The standard remedy is to try again.
@@ -97,6 +183,39 @@ If there's a passing build on the CI servers for this commit, then it's likely t
 ### Unit Tests
 
 The tests in the `Tests.fs` file are ordered in the same dependency order as the code within the AltCover project (the later `Runner` tests aside).  While working on any given layer, it would make sense to comment out all the tests for later files so as to show what is and isn't being covered by explicit testing, rather than merely being cascaded through.
+
+### Environment
+
+There are no environment variables required to build or test. The optional ones
+are documented in [`.env.example`](./.env.example); copy it to `.env` (which is
+git-ignored and excluded from the Docker build context) before using the
+container. In summary:
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `ALTCOVER_UID` / `ALTCOVER_GID` | `docker-compose.yml`, `Dockerfile` | uid/gid the dev shell runs as; set to your own on Linux so the bind-mounted tree stays writable |
+| `DOTNET_CLI_TELEMETRY_OPTOUT` | container, CI | keep SDK telemetry off shared/CI machines |
+| `DOTNET_NOLOGO` | container, CI | keep build logs greppable |
+| `COVERALLS_REPO_TOKEN` | `Build/targets.fsx` | enables the Coveralls upload; unset means the upload is skipped, not failed |
+| `APPVEYOR_BUILD_VERSION` | `Build/targets.fsx` | stamps the assembly version in a release build; derived locally from `appveyor.yml` and git |
+
+### Containerised development
+
+```bash
+cp .env.example .env
+# on Linux, so the bind mount is writable:
+printf 'ALTCOVER_UID=%s\nALTCOVER_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
+docker compose build
+docker compose run --rm app
+```
+
+The image is a development shell, not a service: it runs as an unprivileged
+user, drops all Linux capabilities, sets `no-new-privileges`, publishes no
+ports, and -- via `.dockerignore` -- contains neither the git history nor the
+`Build/*.snk` signing keys. It deliberately does *not* install the .NET SDK;
+provision the toolchain you need on top, or use the host toolchain as the
+README's "Tooling" section describes.
+
 
 ## Thanks to
 
